@@ -4,9 +4,11 @@ import csv
 import json
 from pathlib import Path
 
-from recipe_rag.embedding.embedder import TextEmbedder, load_embedding_config
-from recipe_rag.retrieval.retriever import Retriever
-from recipe_rag.vector_store.store import ChromaVectorStore
+from recipe_rag.embedding.embedder import load_embedding_config
+from recipe_rag.retrieval.dense_retriever import (
+    build_retriever,
+    load_retrieval_config,
+)
 
 
 def _is_relevant(result: dict, record: dict) -> bool:
@@ -19,17 +21,19 @@ def _is_relevant(result: dict, record: dict) -> bool:
 
 def _write_error_report(
     answerable_pairs: list[tuple[dict, list[dict]]],
+    strategy: str,
     profile_name: str,
     model_name: str,
 ) -> tuple[Path, int]:
     """Write top-five results for questions whose correct chunk is not rank one."""
     output_path = Path("data/processed/evaluation") / (
-        f"retrieval_errors_{profile_name}.csv"
+        f"retrieval_errors_{strategy}_{profile_name}.csv"
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fieldnames = [
         "embedding_profile",
         "embedding_model",
+        "retrieval_strategy",
         "error_type",
         "question_id",
         "question",
@@ -40,6 +44,10 @@ def _write_error_report(
         "retrieved_source",
         "retrieved_section",
         "score",
+        "dense_rank",
+        "dense_score",
+        "bm25_rank",
+        "bm25_score",
         "is_relevant",
         "retrieved_content",
     ]
@@ -67,6 +75,7 @@ def _write_error_report(
                     {
                         "embedding_profile": profile_name,
                         "embedding_model": model_name,
+                        "retrieval_strategy": strategy,
                         "error_type": error_type,
                         "question_id": record["id"],
                         "question": record["question"],
@@ -77,6 +86,10 @@ def _write_error_report(
                         "retrieved_source": metadata["source"],
                         "retrieved_section": metadata["section"],
                         "score": f'{result["score"]:.6f}',
+                        "dense_rank": result.get("dense_rank"),
+                        "dense_score": result.get("dense_score"),
+                        "bm25_rank": result.get("bm25_rank"),
+                        "bm25_score": result.get("bm25_score"),
                         "is_relevant": _is_relevant(result, record),
                         "retrieved_content": result["content"],
                     }
@@ -87,12 +100,12 @@ def _write_error_report(
 
 def test_retrieval_golden_dataset() -> None:
     """Run all questions and report retrieval metrics for answerable records."""
-    config = load_embedding_config(Path("configs/embedding.yaml"))
-    store = ChromaVectorStore(
-        Path("data/vector_store") / config.profile_name,
-        config.profile_name,
+    embedding_config = load_embedding_config(Path("configs/embedding.yaml"))
+    retrieval_config = load_retrieval_config(Path("configs/retrieval.yaml"))
+    retriever = build_retriever(
+        retrieval_config,
+        embedding_config,
     )
-    retriever = Retriever(TextEmbedder(config), store)
     records = [
         json.loads(line)
         for line in Path("data/evaluation/golden_recipes_100_en.jsonl")
@@ -103,7 +116,7 @@ def test_retrieval_golden_dataset() -> None:
 
     all_results = retriever.retrieve_many(
         [record["question"] for record in records],
-        top_k=5,
+        top_k=retrieval_config.final_top_k,
     )
     answerable_pairs = [
         (record, results)
@@ -142,22 +155,38 @@ def test_retrieval_golden_dataset() -> None:
         "mrr@5": reciprocal_rank_sum / evaluated,
         "source_recall@5": source_recall_sum / evaluated,
     }
+    report_profile = (
+        embedding_config.profile_name
+        if retrieval_config.strategy != "bm25"
+        else "lexical"
+    )
+    report_model = (
+        embedding_config.model_name
+        if retrieval_config.strategy != "bm25"
+        else "not_used"
+    )
     report_path, error_count = _write_error_report(
         answerable_pairs,
-        config.profile_name,
-        config.model_name,
+        retrieval_config.strategy,
+        report_profile,
+        report_model,
     )
 
     assert len(records) == 100
     assert len(all_results) == 100
     assert evaluated > 0
-    assert all(len(results) == 5 for results in all_results)
+    assert all(len(results) == retrieval_config.final_top_k for results in all_results)
     assert metrics["hit@5"] >= 0.70
     assert report_path.is_file()
     assert error_count == evaluated - hit_at[1]
 
-    print(f"\nEmbedding profile: {config.profile_name}")
-    print(f"Embedding model: {config.model_name}")
+    print(f"\nRetrieval strategy: {retrieval_config.strategy}")
+    if retrieval_config.strategy != "bm25":
+        print(f"Embedding profile: {embedding_config.profile_name}")
+        print(f"Embedding model: {embedding_config.model_name}")
+    if retrieval_config.strategy == "hybrid":
+        print(f"Dense weight: {retrieval_config.dense_weight}")
+        print(f"BM25 weight: {retrieval_config.bm25_weight}")
     print(f"Questions: {len(records)}")
     print(f"Answerable questions evaluated: {evaluated}")
     for name, value in metrics.items():

@@ -2,29 +2,35 @@
 
 from pathlib import Path
 
-from recipe_rag.embedding.embedder import TextEmbedder, load_embedding_config
-from recipe_rag.retrieval.retriever import Retriever
-from recipe_rag.vector_store.store import ChromaVectorStore
+from recipe_rag.embedding.embedder import load_embedding_config
+from recipe_rag.retrieval.dense_retriever import (
+    build_retriever,
+    load_retrieval_config,
+)
 
 
 CONFIG_PATH = Path("configs/embedding.yaml")
-VECTOR_STORE_DIR = Path("data/vector_store")
+RETRIEVAL_CONFIG_PATH = Path("configs/retrieval.yaml")
 
 
 def main() -> None:
     query = input("Question: ").strip()
-    config = load_embedding_config(CONFIG_PATH)
-    retriever = Retriever(
-        TextEmbedder(config),
-        ChromaVectorStore(VECTOR_STORE_DIR / config.profile_name, config.profile_name),
-    )
+    embedding_config = load_embedding_config(CONFIG_PATH)
+    retrieval_config = load_retrieval_config(RETRIEVAL_CONFIG_PATH)
+    retriever = build_retriever(retrieval_config, embedding_config)
 
-    results = retriever.retrieve(query, top_k=5)
+    results = retriever.retrieve(query, top_k=retrieval_config.final_top_k)
+    print(f"\nSTRATEGY: {retrieval_config.strategy}")
+    if retrieval_config.strategy != "bm25":
+        print(f"EMBEDDING: {embedding_config.profile_name}")
     print(f"\nQUERY: {query}")
     for rank, result in enumerate(results, start=1):
         print(f"\n===== RANK {rank} =====")
         print(f"chunk_id: {result['chunk_id']}")
         print(f"score: {result['score']:.4f}")
+        if result.get("retrieval_method") == "hybrid":
+            print(f"dense_rank: {result['dense_rank']}")
+            print(f"bm25_rank: {result['bm25_rank']}")
         print(f"source: {result['metadata']['source']}")
         print(f"section: {result['metadata']['section']}")
         print("content:")

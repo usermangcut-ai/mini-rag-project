@@ -86,6 +86,13 @@
 - Retrieval test in rõ embedding profile và model đang được đánh giá.
 - Mỗi profile tạo error report tại `data/processed/evaluation/retrieval_errors_<profile>.csv`.
 - Report giữ top 5 của các câu `miss@1` và `miss@5` để lọc, so sánh và debug bằng Excel.
+- Thêm BM25 in-memory đọc trực tiếp 272 chunks, không cần embedding hoặc vector store.
+- Thêm hybrid retriever gộp dense và BM25 bằng weighted Reciprocal Rank Fusion (RRF); hỗ trợ chỉnh `dense_weight` và `bm25_weight`.
+- Chọn `dense`, `bm25` hoặc `hybrid` cùng candidate sizes và fusion weights trong `configs/retrieval.yaml`.
+- Retrieval inspector và golden benchmark cùng đọc retrieval config, tránh sửa strategy trực tiếp trong code.
+- `test_retrieval_strategies.py` kiểm tra độc lập rule của dense, BM25 và hybrid, không phụ thuộc strategy đang active trong config.
+- Baseline hybrid BGE với weights `1.0:1.0`: Hit@1 `0.5114`, Hit@3 `0.7955`, Hit@5 `0.8750`, MRR@5 `0.6538`, source Recall@5 `0.8371`.
+- Tuned hybrid BGE với weights `1.5:0.5`: Hit@1 `0.5682`, Hit@3 `0.8182`, Hit@5 `0.8864`, MRR@5 `0.6939`, source Recall@5 `0.8390`.
 
 **Trạng thái:** Hoàn thành.
 
