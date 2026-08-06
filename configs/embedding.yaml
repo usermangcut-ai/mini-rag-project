@@ -1,0 +1,20 @@
+embedding:
+  active_model: bge_small
+  normalize: true
+  batch_size: 32
+
+  models:
+    bge_small:
+      model_name: BAAI/bge-small-en-v1.5
+      query_prefix: "Represent this sentence for searching relevant passages: "
+      passage_prefix: ""
+
+    e5_small:
+      model_name: intfloat/e5-small-v2
+      query_prefix: "query: "
+      passage_prefix: "passage: "
+
+    minilm:
+      model_name: sentence-transformers/all-MiniLM-L6-v2
+      query_prefix: ""
+      passage_prefix: ""
