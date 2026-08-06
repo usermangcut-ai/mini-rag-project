@@ -16,6 +16,11 @@ dependencies = [
 dev = [
     "pytest>=8.0",
 ]
+evaluation = [
+    "ragas>=0.4,<0.5",
+    # RAGAS 0.4.3 still imports a VertexAI module removed in 0.4.2.
+    "langchain-community==0.4.1",
+]
 
 [build-system]
 requires = ["setuptools>=70.0"]

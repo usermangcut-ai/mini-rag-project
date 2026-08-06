@@ -1,5 +1,13 @@
 # RAG Development Flow
 
+## Checkpoint hiện tại
+
+- Core RAG đã hoàn thành: ingestion → cleaning → chunking → embedding → ChromaDB → hybrid retrieval → reranking → generation → evaluation.
+- Cấu hình đang chốt: BGE Small, hybrid dense/BM25 `1.5/0.5`, cross-encoder rerank top 20 xuống top 5 và `gpt-4.1-mini` để generation/judge.
+- Retrieval và end-to-end evaluation đều đã có full baseline trên 100 golden questions.
+- Toàn bộ automated test: `18 passed`.
+- Chưa làm: UI demo, deployment, logging hoàn chỉnh và GitHub Actions CI/CD.
+
 ## 1. Chuẩn bị dữ liệu đánh giá
 
 - Lưu corpus gốc trong `data/raw/` và không chỉnh sửa trực tiếp.
@@ -84,7 +92,7 @@
 - Reranker nhận top 20 từ hybrid, dùng cross-encoder đọc từng cặp `question + chunk`, sắp xếp lại rồi trả final top 5.
 - Cross-encoder chỉ inference bằng pretrained weights, không train trên golden dataset và không tạo index mới.
 - Reranker chỉ có thể cứu chunk đã xuất hiện trong candidate top 20; đổi lại chất lượng cải thiện đáng kể nhưng latency CPU tăng.
-- Strategy unit test kiểm tra rule độc lập; golden test đánh giá 100 câu và xuất CSV top 5 false cases để debug.
+- Strategy unit test kiểm tra rule độc lập; golden test đánh giá 100 câu và xuất CSV gọn gồm 7 cột, mỗi false case một dòng với top 5 chunks để debug.
 - Kết quả cuối: Hit@1 `0.7045`, Hit@3 `0.8977`, Hit@5 `0.9205`, MRR@5 `0.7973`, Source Recall@5 `0.9015`.
 
 **Trạng thái:** Hoàn thành.
@@ -99,8 +107,24 @@
 
 **Trạng thái:** Hoàn thành baseline.
 
+## 11. Evaluation
+
+- Chạy full flow `retrieval → rerank → generation` trên golden dataset và in score tổng hợp trực tiếp ra terminal.
+- Deterministic checks đo refusal accuracy, citation validity, gold citation precision và `must_include` recall.
+- RAGAS dùng LLM-as-judge cho faithfulness, answer relevancy và factual correctness; không chạy trong pytest vì có latency và API cost.
+- RAGAS không xuất CSV; CSV chỉ giữ cho retrieval false cases, nơi cần xem top 5 chunks cụ thể.
+- Answer relevancy tái sử dụng embedding model đã load trong retrieval, không load thêm một bộ weights.
+- Pin `langchain-community==0.4.1` do RAGAS 0.4.3 còn import đường dẫn VertexAI đã bị bỏ ở 0.4.2.
+- Smoke test 1 case đã chạy đủ: faithfulness `1.0000`, answer relevancy `0.9520`, factual correctness `0.2500`. Score correctness thấp cho thấy answer thêm chi tiết ngoài reference dù vẫn bám context.
+- Full evaluation đã chạy 100 câu, trong đó RAGAS judge 88 câu answerable và không có judge error. Kết quả: refusal accuracy `0.9700`, citation validity `1.0000`, citation gold precision `0.8113`, must-include recall `0.7320`, faithfulness `0.9437`, answer relevancy `0.8906`, factual correctness `0.5810`.
+- Full run mất khoảng 43 phút. Provider dashboard ghi nhận tổng khoảng 707 requests trong session vì mỗi RAGAS metric có thể dùng nhiều LLM calls nội bộ, ngoài 100 generation calls.
+- Khi tune chỉ chạy `--limit 10`; full 100 chỉ chạy khi chốt baseline để tránh tốn thời gian và API quota.
+- Full project test: `18 passed`.
+
+**Trạng thái:** Hoàn thành full baseline. Factual correctness và must-include recall là hai hướng cải thiện sau, không chặn demo.
+
 ## Các bước tiếp theo
 
-11. Đánh giá chất lượng RAG.
-12. Tạo demo deploy.
-13. Thiết lập CI/CD.
+12. Tạo UI demo cho một câu hỏi và hiển thị answer cùng citations.
+13. Deploy demo.
+14. Thêm logging hoàn chỉnh và GitHub Actions CI/CD.

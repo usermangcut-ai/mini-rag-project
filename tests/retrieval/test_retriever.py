@@ -23,36 +23,20 @@ def _write_error_report(
     answerable_pairs: list[tuple[dict, list[dict]]],
     strategy: str,
     profile_name: str,
-    model_name: str,
 ) -> tuple[Path, int]:
-    """Write top-five results for questions whose correct chunk is not rank one."""
+    """Write one compact row for each question whose correct chunk is not rank one."""
     output_path = Path("data/processed/evaluation") / (
         f"retrieval_errors_{strategy}_{profile_name}.csv"
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fieldnames = [
-        "embedding_profile",
-        "embedding_model",
-        "retrieval_strategy",
-        "error_type",
         "question_id",
+        "error_type",
         "question",
         "expected_answer",
-        "gold_sources",
-        "gold_sections",
-        "rank",
-        "retrieved_source",
-        "retrieved_section",
-        "score",
-        "dense_rank",
-        "dense_score",
-        "bm25_rank",
-        "bm25_score",
-        "retrieval_score",
-        "rerank_score",
-        "reranker_model",
-        "is_relevant",
-        "retrieved_content",
+        "gold_source_sections",
+        "first_relevant_rank",
+        "retrieved_top_5",
     ]
     error_count = 0
 
@@ -72,34 +56,33 @@ def _write_error_report(
 
             error_count += 1
             error_type = "miss@5" if not relevant_ranks else "miss@1"
-            for rank, result in enumerate(results, start=1):
-                metadata = result["metadata"]
-                writer.writerow(
-                    {
-                        "embedding_profile": profile_name,
-                        "embedding_model": model_name,
-                        "retrieval_strategy": strategy,
-                        "error_type": error_type,
-                        "question_id": record["id"],
-                        "question": record["question"],
-                        "expected_answer": record["expected_answer"],
-                        "gold_sources": json.dumps(record["gold_sources"]),
-                        "gold_sections": json.dumps(record["gold_sections"]),
-                        "rank": rank,
-                        "retrieved_source": metadata["source"],
-                        "retrieved_section": metadata["section"],
-                        "score": f'{result["score"]:.6f}',
-                        "dense_rank": result.get("dense_rank"),
-                        "dense_score": result.get("dense_score"),
-                        "bm25_rank": result.get("bm25_rank"),
-                        "bm25_score": result.get("bm25_score"),
-                        "retrieval_score": result.get("retrieval_score"),
-                        "rerank_score": result.get("rerank_score"),
-                        "reranker_model": result.get("reranker_model"),
-                        "is_relevant": _is_relevant(result, record),
-                        "retrieved_content": result["content"],
-                    }
-                )
+            retrieved_top_5 = [
+                {
+                    "rank": rank,
+                    "source": result["metadata"]["source"],
+                    "section": result["metadata"]["section"],
+                    "content": result["content"],
+                }
+                for rank, result in enumerate(results, start=1)
+            ]
+            gold_source_sections = [
+                {"source": source, "sections": record["gold_sections"]}
+                for source in record["gold_sources"]
+            ]
+            writer.writerow(
+                {
+                    "question_id": record["id"],
+                    "error_type": error_type,
+                    "question": record["question"],
+                    "expected_answer": record["expected_answer"],
+                    "gold_source_sections": json.dumps(gold_source_sections),
+                    "first_relevant_rank": relevant_ranks[0] if relevant_ranks else "",
+                    "retrieved_top_5": json.dumps(
+                        retrieved_top_5,
+                        ensure_ascii=False,
+                    ),
+                }
+            )
 
     return output_path, error_count
 
@@ -166,11 +149,6 @@ def test_retrieval_golden_dataset() -> None:
         if retrieval_config.strategy != "bm25"
         else "lexical"
     )
-    report_model = (
-        embedding_config.model_name
-        if retrieval_config.strategy != "bm25"
-        else "not_used"
-    )
     evaluation_strategy = retrieval_config.strategy
     if retrieval_config.reranking_enabled:
         evaluation_strategy += "_reranked"
@@ -178,7 +156,6 @@ def test_retrieval_golden_dataset() -> None:
         answerable_pairs,
         evaluation_strategy,
         report_profile,
-        report_model,
     )
 
     assert len(records) == 100

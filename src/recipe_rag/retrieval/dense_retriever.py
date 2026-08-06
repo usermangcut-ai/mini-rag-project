@@ -119,6 +119,7 @@ def build_retriever(
     embedding_config: EmbeddingConfig,
     chunks_path: str | Path = "data/processed/chunks.jsonl",
     vector_store_directory: str | Path = "data/vector_store",
+    embedder: TextEmbedder | None = None,
 ) -> Any:
     """Build the retrieval implementation selected in configuration."""
     from recipe_rag.retrieval.bm25_retriever import BM25Retriever
@@ -130,7 +131,7 @@ def build_retriever(
         base_retriever = bm25_retriever
     else:
         dense_retriever = DenseRetriever(
-            TextEmbedder(embedding_config),
+            embedder or TextEmbedder(embedding_config),
             ChromaVectorStore(
                 Path(vector_store_directory) / embedding_config.profile_name,
                 embedding_config.profile_name,

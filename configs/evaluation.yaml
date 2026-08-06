@@ -1,0 +1,4 @@
+evaluation:
+  default_limit: 10
+  ragas_enabled: true
+  judge_timeout_seconds: 60

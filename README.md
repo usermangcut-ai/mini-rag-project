@@ -2,7 +2,7 @@
 
 A small, configurable Retrieval-Augmented Generation project built over a Markdown recipe corpus. The project is developed layer by layer so that ingestion, cleaning, chunking, embedding, storage, retrieval, and generation can be inspected, tested, and debugged independently.
 
-The current milestone completes grounded answer generation. End-to-end RAG evaluation, deployment, and CI/CD are the next milestones.
+The current milestone completes grounded generation and end-to-end answer evaluation. Deployment and CI/CD are the next milestones.
 
 ## Project goals
 
@@ -29,6 +29,8 @@ flowchart TD
     K[Final Top-k Context]
     L[Grounded Generation]
     M[Answer with Citations or Refusal]
+    N[Deterministic Checks and RAGAS Judges]
+    O[Aggregate Evaluation Scores]
 
     A --> B
     B --> C
@@ -43,6 +45,8 @@ flowchart TD
     J --> K
     K --> L
     L --> M
+    M --> N
+    N --> O
 ```
 
 Implemented layers:
@@ -54,7 +58,7 @@ Implemented layers:
 - **Vector store:** persists one ChromaDB cosine index per embedding profile.
 - **Retrieval:** supports dense, BM25, weighted hybrid retrieval, and optional cross-encoder reranking.
 - **Generation:** calls a configurable OpenAI-compatible model with retrieved context, citations, refusal behavior, and basic guardrails.
-- **Evaluation:** benchmarks retrieval over 100 golden questions and exports error reports.
+- **Evaluation:** combines deterministic checks with RAGAS LLM-as-judge metrics and prints aggregate scores.
 
 ## Retrieval strategies
 
@@ -93,6 +97,22 @@ dense_weight / (rrf_k + dense_rank)
 
 The current configuration uses BGE Small, hybrid weights `1.5 / 0.5`, and a cross-encoder over 20 candidates. Reranking produces the strongest result across every measured retrieval metric, reducing top-one error questions from 38 to 26. The trade-off is latency: the 100-question CPU benchmark increases from roughly 22 seconds to 159 seconds.
 
+### End-to-end RAG baseline
+
+The complete 100-question generation run evaluates all deterministic rules and uses RAGAS judges for the 88 answerable questions.
+
+| Metric | Score |
+| --- | ---: |
+| Refusal accuracy | 0.9700 |
+| Citation validity | 1.0000 |
+| Citation gold precision | 0.8113 |
+| Must-include recall | 0.7320 |
+| Faithfulness | 0.9437 |
+| Answer relevancy | 0.8906 |
+| Factual correctness | 0.5810 |
+
+The full run completed without judge errors in roughly 43 minutes. RAGAS metrics may make several internal LLM calls per case; the provider dashboard reached about 707 requests during the session. Use `--limit 10` while tuning and reserve all 100 cases for milestone baselines.
+
 ## Project structure
 
 ```text
@@ -100,6 +120,7 @@ configs/
   embedding.yaml             # Active embedding profile and model settings
   retrieval.yaml             # Strategy, candidate sizes, RRF, and weights
   generation.yaml            # Prompt limits, output size, and refusal behavior
+  evaluation.yaml            # Sample limit and judge settings
 data/
   raw/                       # Source Markdown corpus
   evaluation/                # Versioned golden dataset
@@ -112,6 +133,7 @@ scripts/
   build_vector_store.py      # Embedded chunks → persistent Chroma index
   inspect_retrieval.py       # Manually inspect one query
   inspect_generation.py      # Run retrieval and generation for one question
+  inspect_evaluation.py      # Evaluate generated answers and print scores
 src/recipe_rag/
   ingestion/
   cleaning/
@@ -124,8 +146,10 @@ src/recipe_rag/
     hybrid_retriever.py
     reranker.py
   generation/                # Grounded answer generation and guardrails
-  evaluation/                # Placeholder for end-to-end RAG evaluation
+  evaluation/                # Deterministic checks and optional RAGAS judges
 tests/
+  evaluation/
+    test_evaluator.py             # Evaluation rules without real API calls
   generation/
     test_generator.py              # Fake-client generation and guardrail tests
   retrieval/
@@ -142,6 +166,12 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip setuptools
 python -m pip install -e ".[dev]"
+```
+
+Install the optional RAGAS evaluation dependencies when running answer-quality judges:
+
+```powershell
+python -m pip install -e ".[dev,evaluation]"
 ```
 
 The editable install makes changes under `src/` immediately importable without reinstalling the package after every edit.
@@ -242,28 +272,43 @@ Test generation and guardrails without calling the real API:
 python -m pytest -s .\tests\generation\test_generator.py
 ```
 
+Run 10 end-to-end cases without RAGAS judge calls (generation still calls the configured LLM):
+
+```powershell
+python .\scripts\inspect_evaluation.py --limit 10 --deterministic-only
+```
+
+Run the same cases with RAGAS faithfulness, answer relevancy, and factual correctness:
+
+```powershell
+python .\scripts\inspect_evaluation.py --limit 10
+```
+
+Start with `--limit 1` when validating a new provider because RAGAS makes multiple judge calls per answerable case. RAGAS prints aggregate scores directly to the terminal and does not create a CSV.
+
 The benchmark writes a per-strategy CSV report under:
 
 ```text
 data/processed/evaluation/retrieval_errors_<strategy>_<profile>.csv
 ```
 
-Each failed top-one question retains all five retrieved candidates, including source, section, retrieval score, rerank score, dense rank, BM25 rank, content, and relevance label. This makes it possible to filter and compare failures in Excel without manually replaying every question.
+Each failed top-one question occupies one row with seven columns: question ID, error type, question, expected answer, gold source/section, first relevant rank, and the five retrieved chunks. Internal vector and ranking details are omitted.
 
 ## Testing philosophy
 
 - Layer tests verify correctness and data invariants.
 - Strategy tests verify retrieval rules even when another strategy is active in config.
 - Golden-dataset tests measure quality and detect regressions.
-- CSV reports support case-level debugging.
+- The compact retrieval CSV supports case-level debugging without dumping internal scores.
 - `inspect_retrieval.py` is reserved for quick experiments and deeper inspection of individual failures.
 - Generation unit tests use a fake API client; only the manual generation script calls the configured endpoint.
+- Evaluation unit tests never call the endpoint; RAGAS runs only from `inspect_evaluation.py`.
 
 ## Roadmap
 
 1. Review ambiguous golden records and finalize the retrieval benchmark.
 2. Measure reranker latency and tune candidate count for the deployment environment.
-3. Evaluate answer correctness, faithfulness, context usage, and unanswerable questions.
+3. Review low evaluation scores and shorten answers that add unsupported or unnecessary detail.
 4. Add structured logging and an end-to-end pipeline entry point.
 5. Build a small interactive deployment demo.
 6. Add GitHub Actions for automated tests and deployment checks.
