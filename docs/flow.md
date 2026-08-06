@@ -83,7 +83,9 @@
 - Script nhận một câu hỏi và in rank, score, source, section cùng content để kiểm tra thủ công.
 - Test batch 100 golden questions; metrics tính trên 88 câu answerable.
 - Baseline BGE: Hit@1 `0.5341`, Hit@3 `0.8068`, Hit@5 `0.8864`, MRR@5 `0.6716`, source Recall@5 `0.8580`.
-- Chi tiết logic nằm trong `docs/retrieval.md`.
+- Retrieval test in rõ embedding profile và model đang được đánh giá.
+- Mỗi profile tạo error report tại `data/processed/evaluation/retrieval_errors_<profile>.csv`.
+- Report giữ top 5 của các câu `miss@1` và `miss@5` để lọc, so sánh và debug bằng Excel.
 
 **Trạng thái:** Hoàn thành.
 
