@@ -2,7 +2,7 @@
 
 A small, configurable Retrieval-Augmented Generation project built over a Markdown recipe corpus. The project is developed layer by layer so that ingestion, cleaning, chunking, embedding, storage, retrieval, and generation can be inspected, tested, and debugged independently.
 
-The current milestone completes grounded generation and end-to-end answer evaluation. Deployment and CI/CD are the next milestones.
+This finished version covers the complete core RAG workflow, from Markdown ingestion to grounded generation and end-to-end evaluation.
 
 ## Project goals
 
@@ -111,7 +111,7 @@ The complete 100-question generation run evaluates all deterministic rules and u
 | Answer relevancy | 0.8906 |
 | Factual correctness | 0.5810 |
 
-The full run completed without judge errors in roughly 43 minutes. RAGAS metrics may make several internal LLM calls per case; the provider dashboard reached about 707 requests during the session. Use `--limit 10` while tuning and reserve all 100 cases for milestone baselines.
+The full run completed without judge errors in roughly 43 minutes. RAGAS metrics may make several internal LLM calls per case; the provider dashboard reached about 707 requests during the session. Use `--limit 10` for routine checks and all 100 cases only for full benchmark runs.
 
 ## Project structure
 
@@ -303,14 +303,5 @@ Each failed top-one question occupies one row with seven columns: question ID, e
 - `inspect_retrieval.py` is reserved for quick experiments and deeper inspection of individual failures.
 - Generation unit tests use a fake API client; only the manual generation script calls the configured endpoint.
 - Evaluation unit tests never call the endpoint; RAGAS runs only from `inspect_evaluation.py`.
-
-## Roadmap
-
-1. Review ambiguous golden records and finalize the retrieval benchmark.
-2. Measure reranker latency and tune candidate count for the deployment environment.
-3. Review low evaluation scores and shorten answers that add unsupported or unnecessary detail.
-4. Add structured logging and an end-to-end pipeline entry point.
-5. Build a small interactive deployment demo.
-6. Add GitHub Actions for automated tests and deployment checks.
 
 Detailed implementation history is recorded in `docs/flow.md`.

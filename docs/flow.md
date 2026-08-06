@@ -1,12 +1,12 @@
 # RAG Development Flow
 
-## Checkpoint hiện tại
+## Trạng thái cuối cùng
 
 - Core RAG đã hoàn thành: ingestion → cleaning → chunking → embedding → ChromaDB → hybrid retrieval → reranking → generation → evaluation.
 - Cấu hình đang chốt: BGE Small, hybrid dense/BM25 `1.5/0.5`, cross-encoder rerank top 20 xuống top 5 và `gpt-4.1-mini` để generation/judge.
 - Retrieval và end-to-end evaluation đều đã có full baseline trên 100 golden questions.
 - Toàn bộ automated test: `18 passed`.
-- Chưa làm: UI demo, deployment, logging hoàn chỉnh và GitHub Actions CI/CD.
+- Phạm vi project kết thúc ở core RAG có thể chạy, test và đánh giá độc lập từng layer.
 
 ## 1. Chuẩn bị dữ liệu đánh giá
 
@@ -105,7 +105,7 @@
 - API key, base URL và model nằm trong `.env`; behavior và limits nằm trong `configs/generation.yaml`.
 - Ba unit tests dùng fake client đã pass; full flow thật trả đúng Garlic Bread ingredients và citation đúng source/section.
 
-**Trạng thái:** Hoàn thành baseline.
+**Trạng thái:** Hoàn thành.
 
 ## 11. Evaluation
 
@@ -121,10 +121,4 @@
 - Khi tune chỉ chạy `--limit 10`; full 100 chỉ chạy khi chốt baseline để tránh tốn thời gian và API quota.
 - Full project test: `18 passed`.
 
-**Trạng thái:** Hoàn thành full baseline. Factual correctness và must-include recall là hai hướng cải thiện sau, không chặn demo.
-
-## Các bước tiếp theo
-
-12. Tạo UI demo cho một câu hỏi và hiển thị answer cùng citations.
-13. Deploy demo.
-14. Thêm logging hoàn chỉnh và GitHub Actions CI/CD.
+**Trạng thái:** Hoàn thành.
