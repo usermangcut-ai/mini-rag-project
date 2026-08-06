@@ -79,20 +79,13 @@
 
 ## 9. Retrieval
 
-- Embed query theo active profile, kiểm tra model/dimension rồi search Chroma top-k.
-- Script nhận một câu hỏi và in rank, score, source, section cùng content để kiểm tra thủ công.
-- Test batch 100 golden questions; metrics tính trên 88 câu answerable.
-- Baseline BGE: Hit@1 `0.5341`, Hit@3 `0.8068`, Hit@5 `0.8864`, MRR@5 `0.6716`, source Recall@5 `0.8580`.
-- Retrieval test in rõ embedding profile và model đang được đánh giá.
-- Mỗi profile tạo error report tại `data/processed/evaluation/retrieval_errors_<profile>.csv`.
-- Report giữ top 5 của các câu `miss@1` và `miss@5` để lọc, so sánh và debug bằng Excel.
-- Thêm BM25 in-memory đọc trực tiếp 272 chunks, không cần embedding hoặc vector store.
-- Thêm hybrid retriever gộp dense và BM25 bằng weighted Reciprocal Rank Fusion (RRF); hỗ trợ chỉnh `dense_weight` và `bm25_weight`.
-- Chọn `dense`, `bm25` hoặc `hybrid` cùng candidate sizes và fusion weights trong `configs/retrieval.yaml`.
-- Retrieval inspector và golden benchmark cùng đọc retrieval config, tránh sửa strategy trực tiếp trong code.
-- `test_retrieval_strategies.py` kiểm tra độc lập rule của dense, BM25 và hybrid, không phụ thuộc strategy đang active trong config.
-- Baseline hybrid BGE với weights `1.0:1.0`: Hit@1 `0.5114`, Hit@3 `0.7955`, Hit@5 `0.8750`, MRR@5 `0.6538`, source Recall@5 `0.8371`.
-- Tuned hybrid BGE với weights `1.5:0.5`: Hit@1 `0.5682`, Hit@3 `0.8182`, Hit@5 `0.8864`, MRR@5 `0.6939`, source Recall@5 `0.8390`.
+- Hỗ trợ `dense`, `bm25` và `hybrid`; strategy, candidate sizes và weights được chọn trong `configs/retrieval.yaml`.
+- Dense search dùng query embedding và Chroma; BM25 đọc trực tiếp chunks; hybrid gộp hai bảng xếp hạng bằng weighted RRF.
+- Reranker nhận top 20 từ hybrid, dùng cross-encoder đọc từng cặp `question + chunk`, sắp xếp lại rồi trả final top 5.
+- Cross-encoder chỉ inference bằng pretrained weights, không train trên golden dataset và không tạo index mới.
+- Reranker chỉ có thể cứu chunk đã xuất hiện trong candidate top 20; đổi lại chất lượng cải thiện đáng kể nhưng latency CPU tăng.
+- Strategy unit test kiểm tra rule độc lập; golden test đánh giá 100 câu và xuất CSV top 5 false cases để debug.
+- Kết quả cuối: Hit@1 `0.7045`, Hit@3 `0.8977`, Hit@5 `0.9205`, MRR@5 `0.7973`, Source Recall@5 `0.9015`.
 
 **Trạng thái:** Hoàn thành.
 

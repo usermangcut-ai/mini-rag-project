@@ -26,6 +26,10 @@ class RetrievalConfig:
     rrf_k: int
     dense_weight: float
     bm25_weight: float
+    reranking_enabled: bool
+    reranker_model_name: str
+    reranker_candidate_top_k: int
+    reranker_batch_size: int
 
 
 def load_retrieval_config(config_path: str | Path) -> RetrievalConfig:
@@ -41,6 +45,7 @@ def load_retrieval_config(config_path: str | Path) -> RetrievalConfig:
         raise ValueError(f"Unknown retrieval strategy: {strategy}")
 
     weights = retrieval_config.get("weights", {})
+    reranking = retrieval_config.get("reranking", {})
     config = RetrievalConfig(
         strategy=strategy,
         final_top_k=int(retrieval_config.get("final_top_k", 5)),
@@ -49,6 +54,10 @@ def load_retrieval_config(config_path: str | Path) -> RetrievalConfig:
         rrf_k=int(retrieval_config.get("rrf_k", 60)),
         dense_weight=float(weights.get("dense", 1.0)),
         bm25_weight=float(weights.get("bm25", 1.0)),
+        reranking_enabled=bool(reranking.get("enabled", False)),
+        reranker_model_name=str(reranking.get("model_name", "")),
+        reranker_candidate_top_k=int(reranking.get("candidate_top_k", 20)),
+        reranker_batch_size=int(reranking.get("batch_size", 32)),
     )
     if min(
         config.final_top_k,
@@ -61,6 +70,12 @@ def load_retrieval_config(config_path: str | Path) -> RetrievalConfig:
         raise ValueError("Retrieval weights cannot be negative")
     if config.dense_weight == 0 and config.bm25_weight == 0:
         raise ValueError("At least one retrieval weight must be positive")
+    if config.reranking_enabled and not config.reranker_model_name.strip():
+        raise ValueError("Enabled reranking requires a model_name")
+    if config.reranker_candidate_top_k < config.final_top_k:
+        raise ValueError("Reranker candidate_top_k must be at least final_top_k")
+    if config.reranker_batch_size <= 0:
+        raise ValueError("Reranker batch_size must be greater than zero")
     return config
 
 
@@ -112,26 +127,43 @@ def build_retriever(
     if retrieval_config.strategy in {"bm25", "hybrid"}:
         bm25_retriever = BM25Retriever.from_jsonl(chunks_path)
     if retrieval_config.strategy == "bm25":
-        return bm25_retriever
+        base_retriever = bm25_retriever
+    else:
+        dense_retriever = DenseRetriever(
+            TextEmbedder(embedding_config),
+            ChromaVectorStore(
+                Path(vector_store_directory) / embedding_config.profile_name,
+                embedding_config.profile_name,
+            ),
+        )
+        if retrieval_config.strategy == "dense":
+            base_retriever = dense_retriever
+        else:
+            from recipe_rag.retrieval.hybrid_retriever import HybridRetriever
 
-    dense_retriever = DenseRetriever(
-        TextEmbedder(embedding_config),
-        ChromaVectorStore(
-            Path(vector_store_directory) / embedding_config.profile_name,
-            embedding_config.profile_name,
-        ),
+            base_retriever = HybridRetriever(
+                dense_retriever,
+                bm25_retriever,
+                dense_top_k=retrieval_config.dense_top_k,
+                bm25_top_k=retrieval_config.bm25_top_k,
+                rrf_k=retrieval_config.rrf_k,
+                dense_weight=retrieval_config.dense_weight,
+                bm25_weight=retrieval_config.bm25_weight,
+            )
+
+    if not retrieval_config.reranking_enabled:
+        return base_retriever
+
+    from recipe_rag.retrieval.reranker import (
+        CrossEncoderReranker,
+        RerankingRetriever,
     )
-    if retrieval_config.strategy == "dense":
-        return dense_retriever
 
-    from recipe_rag.retrieval.hybrid_retriever import HybridRetriever
-
-    return HybridRetriever(
-        dense_retriever,
-        bm25_retriever,
-        dense_top_k=retrieval_config.dense_top_k,
-        bm25_top_k=retrieval_config.bm25_top_k,
-        rrf_k=retrieval_config.rrf_k,
-        dense_weight=retrieval_config.dense_weight,
-        bm25_weight=retrieval_config.bm25_weight,
+    return RerankingRetriever(
+        base_retriever,
+        CrossEncoderReranker(
+            retrieval_config.reranker_model_name,
+            batch_size=retrieval_config.reranker_batch_size,
+        ),
+        candidate_top_k=retrieval_config.reranker_candidate_top_k,
     )

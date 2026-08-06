@@ -23,11 +23,17 @@ def main() -> None:
     print(f"\nSTRATEGY: {retrieval_config.strategy}")
     if retrieval_config.strategy != "bm25":
         print(f"EMBEDDING: {embedding_config.profile_name}")
+    print(f"RERANKING: {retrieval_config.reranking_enabled}")
+    if retrieval_config.reranking_enabled:
+        print(f"RERANKER: {retrieval_config.reranker_model_name}")
     print(f"\nQUERY: {query}")
     for rank, result in enumerate(results, start=1):
         print(f"\n===== RANK {rank} =====")
         print(f"chunk_id: {result['chunk_id']}")
         print(f"score: {result['score']:.4f}")
+        if result.get("reranked"):
+            print(f"retrieval_score: {result['retrieval_score']:.4f}")
+            print(f"rerank_score: {result['rerank_score']:.4f}")
         if result.get("retrieval_method") == "hybrid":
             print(f"dense_rank: {result['dense_rank']}")
             print(f"bm25_rank: {result['bm25_rank']}")

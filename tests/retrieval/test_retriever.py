@@ -48,6 +48,9 @@ def _write_error_report(
         "dense_score",
         "bm25_rank",
         "bm25_score",
+        "retrieval_score",
+        "rerank_score",
+        "reranker_model",
         "is_relevant",
         "retrieved_content",
     ]
@@ -90,6 +93,9 @@ def _write_error_report(
                         "dense_score": result.get("dense_score"),
                         "bm25_rank": result.get("bm25_rank"),
                         "bm25_score": result.get("bm25_score"),
+                        "retrieval_score": result.get("retrieval_score"),
+                        "rerank_score": result.get("rerank_score"),
+                        "reranker_model": result.get("reranker_model"),
                         "is_relevant": _is_relevant(result, record),
                         "retrieved_content": result["content"],
                     }
@@ -165,9 +171,12 @@ def test_retrieval_golden_dataset() -> None:
         if retrieval_config.strategy != "bm25"
         else "not_used"
     )
+    evaluation_strategy = retrieval_config.strategy
+    if retrieval_config.reranking_enabled:
+        evaluation_strategy += "_reranked"
     report_path, error_count = _write_error_report(
         answerable_pairs,
-        retrieval_config.strategy,
+        evaluation_strategy,
         report_profile,
         report_model,
     )
@@ -187,6 +196,10 @@ def test_retrieval_golden_dataset() -> None:
     if retrieval_config.strategy == "hybrid":
         print(f"Dense weight: {retrieval_config.dense_weight}")
         print(f"BM25 weight: {retrieval_config.bm25_weight}")
+    print(f"Reranking enabled: {retrieval_config.reranking_enabled}")
+    if retrieval_config.reranking_enabled:
+        print(f"Reranker model: {retrieval_config.reranker_model_name}")
+        print(f"Reranker candidates: {retrieval_config.reranker_candidate_top_k}")
     print(f"Questions: {len(records)}")
     print(f"Answerable questions evaluated: {evaluated}")
     for name, value in metrics.items():

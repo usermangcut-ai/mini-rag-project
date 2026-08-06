@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from recipe_rag.retrieval.bm25_retriever import BM25Retriever
 from recipe_rag.retrieval.dense_retriever import DenseRetriever
 from recipe_rag.retrieval.hybrid_retriever import HybridRetriever
+from recipe_rag.retrieval.reranker import CrossEncoderReranker, RerankingRetriever
 
 
 def _result(chunk_id: str, score: float) -> dict:
@@ -55,6 +56,11 @@ class _DenseStub:
 
     def retrieve_many(self, queries: list[str], top_k: int = 5) -> list[list[dict]]:
         return [self.results[:top_k] for _ in queries]
+
+
+class _CrossEncoderStub:
+    def predict(self, pairs, batch_size: int, show_progress_bar: bool):
+        return [1.0 if "best evidence" in passage else 0.1 for _, passage in pairs]
 
 
 def test_dense_connects_query_embedding_to_matching_vector_store() -> None:
@@ -147,6 +153,30 @@ def test_hybrid_rrf_applies_configurable_retriever_weights() -> None:
 
     assert results[0]["chunk_id"] == "dense-choice"
     assert results[0]["score"] > results[1]["score"]
+
+
+def test_reranker_reorders_first_stage_candidates() -> None:
+    base = _DenseStub(
+        [
+            _result("initial-first", 0.9),
+            {
+                **_result("reranked-first", 0.5),
+                "content": "this is the best evidence",
+            },
+        ]
+    )
+    reranker = CrossEncoderReranker(
+        "test-cross-encoder",
+        model=_CrossEncoderStub(),
+    )
+    retriever = RerankingRetriever(base, reranker, candidate_top_k=2)
+
+    results = retriever.retrieve("question", top_k=2)
+
+    assert results[0]["chunk_id"] == "reranked-first"
+    assert results[0]["retrieval_score"] == 0.5
+    assert results[0]["rerank_score"] == 1.0
+    assert results[0]["reranked"] is True
 
 
 # PowerShell: python -m pytest -s .\tests\retrieval\test_retrieval_strategies.py

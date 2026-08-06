@@ -25,8 +25,9 @@ flowchart TD
     G[Dense Retrieval]
     H[BM25 Retrieval]
     I[Weighted RRF Fusion]
-    J[Final Top-k Context]
-    K[Generation - Next Milestone]
+    J[Cross-Encoder Reranking]
+    K[Final Top-k Context]
+    L[Generation - Next Milestone]
 
     A --> B
     B --> C
@@ -39,6 +40,7 @@ flowchart TD
     H --> I
     I --> J
     J --> K
+    K --> L
 ```
 
 Implemented layers:
@@ -48,7 +50,7 @@ Implemented layers:
 - **Chunking:** produces 272 parent-aware chunks split by recipe section.
 - **Embedding:** supports BGE, E5, and MiniLM profiles.
 - **Vector store:** persists one ChromaDB cosine index per embedding profile.
-- **Retrieval:** supports dense, BM25, and weighted hybrid retrieval.
+- **Retrieval:** supports dense, BM25, weighted hybrid retrieval, and optional cross-encoder reranking.
 - **Evaluation:** benchmarks retrieval over 100 golden questions and exports error reports.
 
 ## Retrieval strategies
@@ -58,6 +60,8 @@ Three strategies are available:
 - `dense`: embeds the query and searches the matching Chroma index.
 - `bm25`: performs lexical retrieval directly over `chunks.jsonl`; it does not use embeddings or ChromaDB.
 - `hybrid`: retrieves candidates from dense and BM25 branches and combines their ranks using weighted Reciprocal Rank Fusion.
+
+An optional cross-encoder then scores each `query + candidate chunk` pair jointly and reranks the first-stage candidates before returning the final top-k. The current reranker is `cross-encoder/ms-marco-MiniLM-L6-v2`.
 
 The hybrid score is:
 
@@ -81,9 +85,10 @@ dense_weight / (rrf_k + dense_rank)
 | Dense            | BGE Small           |                  — |           0.5341 |           0.8068 |           0.8864 |           0.6716 |           0.8580 |
 | Dense            | E5 Small            |                  — |           0.5114 |           0.8409 |           0.8523 |           0.6600 |           0.8068 |
 | Hybrid           | BGE Small           |           1.0 / 1.0 |           0.5114 |           0.7955 |           0.8750 |           0.6538 |           0.8371 |
-| **Hybrid** | **BGE Small** | **1.5 / 0.5** | **0.5682** | **0.8182** | **0.8864** | **0.6939** | **0.8390** |
+| Hybrid | BGE Small | 1.5 / 0.5 | 0.5682 | 0.8182 | 0.8864 | 0.6939 | 0.8390 |
+| **Hybrid + reranker** | **BGE Small** | **1.5 / 0.5** | **0.7045** | **0.8977** | **0.9205** | **0.7973** | **0.9015** |
 
-The current configuration uses BGE Small with hybrid weights `1.5 / 0.5`. It improves first-result ranking and MRR over the dense BGE baseline while preserving Hit@5. Dense BGE still has the stronger Source Recall@5, so the selected weights are a baseline rather than a final optimum.
+The current configuration uses BGE Small, hybrid weights `1.5 / 0.5`, and a cross-encoder over 20 candidates. Reranking produces the strongest result across every measured retrieval metric, reducing top-one error questions from 38 to 26. The trade-off is latency: the 100-question CPU benchmark increases from roughly 22 seconds to 159 seconds.
 
 ## Project structure
 
@@ -112,6 +117,7 @@ src/recipe_rag/
     dense_retriever.py
     bm25_retriever.py
     hybrid_retriever.py
+    reranker.py
   generation/                # Placeholder for the next milestone
   evaluation/                # Placeholder for end-to-end RAG evaluation
 tests/
@@ -174,6 +180,11 @@ retrieval:
   weights:
     dense: 1.5
     bm25: 0.5
+  reranking:
+    enabled: true
+    model_name: cross-encoder/ms-marco-MiniLM-L6-v2
+    candidate_top_k: 20
+    batch_size: 32
 ```
 
 ## Run and test
@@ -208,7 +219,7 @@ The benchmark writes a per-strategy CSV report under:
 data/processed/evaluation/retrieval_errors_<strategy>_<profile>.csv
 ```
 
-Each failed top-one question retains all five retrieved candidates, including rank, source, section, score, content, dense rank, BM25 rank, and relevance label. This makes it possible to filter and compare failures in Excel without manually replaying every question.
+Each failed top-one question retains all five retrieved candidates, including source, section, retrieval score, rerank score, dense rank, BM25 rank, content, and relevance label. This makes it possible to filter and compare failures in Excel without manually replaying every question.
 
 ## Testing philosophy
 
@@ -221,7 +232,7 @@ Each failed top-one question retains all five retrieved candidates, including ra
 ## Roadmap
 
 1. Review ambiguous golden records and finalize the retrieval benchmark.
-2. Benchmark MiniLM and additional hybrid weights if needed.
+2. Measure reranker latency and tune candidate count for the deployment environment.
 3. Implement configurable generation with citations and refusal behavior.
 4. Evaluate answer correctness, faithfulness, context usage, and unanswerable questions.
 5. Add structured logging and an end-to-end pipeline entry point.
