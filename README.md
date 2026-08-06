@@ -1,8 +1,8 @@
 # Recipe RAG
 
-A small, configurable Retrieval-Augmented Generation project built over a Markdown recipe corpus. The project is developed layer by layer so that ingestion, cleaning, chunking, embedding, storage, and retrieval can be inspected, tested, and debugged independently.
+A small, configurable Retrieval-Augmented Generation project built over a Markdown recipe corpus. The project is developed layer by layer so that ingestion, cleaning, chunking, embedding, storage, retrieval, and generation can be inspected, tested, and debugged independently.
 
-The current milestone completes the retrieval pipeline. Generation, end-to-end RAG evaluation, deployment, and CI/CD are the next milestones.
+The current milestone completes grounded answer generation. End-to-end RAG evaluation, deployment, and CI/CD are the next milestones.
 
 ## Project goals
 
@@ -27,7 +27,8 @@ flowchart TD
     I[Weighted RRF Fusion]
     J[Cross-Encoder Reranking]
     K[Final Top-k Context]
-    L[Generation - Next Milestone]
+    L[Grounded Generation]
+    M[Answer with Citations or Refusal]
 
     A --> B
     B --> C
@@ -41,6 +42,7 @@ flowchart TD
     I --> J
     J --> K
     K --> L
+    L --> M
 ```
 
 Implemented layers:
@@ -51,6 +53,7 @@ Implemented layers:
 - **Embedding:** supports BGE, E5, and MiniLM profiles.
 - **Vector store:** persists one ChromaDB cosine index per embedding profile.
 - **Retrieval:** supports dense, BM25, weighted hybrid retrieval, and optional cross-encoder reranking.
+- **Generation:** calls a configurable OpenAI-compatible model with retrieved context, citations, refusal behavior, and basic guardrails.
 - **Evaluation:** benchmarks retrieval over 100 golden questions and exports error reports.
 
 ## Retrieval strategies
@@ -96,6 +99,7 @@ The current configuration uses BGE Small, hybrid weights `1.5 / 0.5`, and a cros
 configs/
   embedding.yaml             # Active embedding profile and model settings
   retrieval.yaml             # Strategy, candidate sizes, RRF, and weights
+  generation.yaml            # Prompt limits, output size, and refusal behavior
 data/
   raw/                       # Source Markdown corpus
   evaluation/                # Versioned golden dataset
@@ -107,6 +111,7 @@ scripts/
   build_embeddings.py        # Chunks → vectors for the active model
   build_vector_store.py      # Embedded chunks → persistent Chroma index
   inspect_retrieval.py       # Manually inspect one query
+  inspect_generation.py      # Run retrieval and generation for one question
 src/recipe_rag/
   ingestion/
   cleaning/
@@ -118,9 +123,11 @@ src/recipe_rag/
     bm25_retriever.py
     hybrid_retriever.py
     reranker.py
-  generation/                # Placeholder for the next milestone
+  generation/                # Grounded answer generation and guardrails
   evaluation/                # Placeholder for end-to-end RAG evaluation
 tests/
+  generation/
+    test_generator.py              # Fake-client generation and guardrail tests
   retrieval/
     test_retrieval_strategies.py  # Fast correctness tests for all strategies
     test_retriever.py              # Golden-dataset quality benchmark
@@ -187,6 +194,16 @@ retrieval:
     batch_size: 32
 ```
 
+Set the API endpoint locally in `.env` using `.env.example` as the template:
+
+```env
+LLM_API_KEY=your_api_key
+LLM_BASE_URL=https://your-provider.example/v1
+LLM_MODEL=your-model-name
+```
+
+Generation limits and refusal behavior are configured in `configs/generation.yaml`. Secrets are never stored in YAML or committed to Git.
+
 ## Run and test
 
 Run all automated tests:
@@ -213,6 +230,18 @@ Inspect one question manually:
 python .\scripts\inspect_retrieval.py
 ```
 
+Run retrieval and generate a grounded answer with citations:
+
+```powershell
+python .\scripts\inspect_generation.py
+```
+
+Test generation and guardrails without calling the real API:
+
+```powershell
+python -m pytest -s .\tests\generation\test_generator.py
+```
+
 The benchmark writes a per-strategy CSV report under:
 
 ```text
@@ -228,15 +257,15 @@ Each failed top-one question retains all five retrieved candidates, including so
 - Golden-dataset tests measure quality and detect regressions.
 - CSV reports support case-level debugging.
 - `inspect_retrieval.py` is reserved for quick experiments and deeper inspection of individual failures.
+- Generation unit tests use a fake API client; only the manual generation script calls the configured endpoint.
 
 ## Roadmap
 
 1. Review ambiguous golden records and finalize the retrieval benchmark.
 2. Measure reranker latency and tune candidate count for the deployment environment.
-3. Implement configurable generation with citations and refusal behavior.
-4. Evaluate answer correctness, faithfulness, context usage, and unanswerable questions.
-5. Add structured logging and an end-to-end pipeline entry point.
-6. Build a small interactive deployment demo.
-7. Add GitHub Actions for automated tests and deployment checks.
+3. Evaluate answer correctness, faithfulness, context usage, and unanswerable questions.
+4. Add structured logging and an end-to-end pipeline entry point.
+5. Build a small interactive deployment demo.
+6. Add GitHub Actions for automated tests and deployment checks.
 
 Detailed implementation history is recorded in `docs/flow.md`.

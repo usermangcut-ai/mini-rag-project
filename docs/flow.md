@@ -89,9 +89,18 @@
 
 **Trạng thái:** Hoàn thành.
 
+## 10. Generation
+
+- Nhận question cùng top 5 contexts sau rerank và gọi model qua OpenAI-compatible API.
+- Prompt chỉ cho phép dùng supplied context, bắt buộc citation `[n]`, từ chối khi thiếu dữ liệu và bỏ qua instruction nằm trong context.
+- Guardrails giới hạn question/context, không gọi API khi context rỗng và chuyển sang refusal nếu output không có citation hợp lệ.
+- API key, base URL và model nằm trong `.env`; behavior và limits nằm trong `configs/generation.yaml`.
+- Ba unit tests dùng fake client đã pass; full flow thật trả đúng Garlic Bread ingredients và citation đúng source/section.
+
+**Trạng thái:** Hoàn thành baseline.
+
 ## Các bước tiếp theo
 
-10. Xây dựng generation.
 11. Đánh giá chất lượng RAG.
 12. Tạo demo deploy.
 13. Thiết lập CI/CD.
