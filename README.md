@@ -1,108 +1,98 @@
-# Recipe RAG
+<div align="center">
 
-A small, configurable Retrieval-Augmented Generation project built over a Markdown recipe corpus. The project is developed layer by layer so that ingestion, cleaning, chunking, embedding, storage, retrieval, and generation can be inspected, tested, and debugged independently.
+# 🍳 Recipe RAG
 
-This finished version covers the complete core RAG workflow, from Markdown ingestion to grounded generation and end-to-end evaluation.
+**A layer-by-layer Retrieval-Augmented Generation pipeline over a recipe corpus — every stage inspectable, configurable, and measured.**
 
-## Project goals
+![Python](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)
+![ChromaDB](https://img.shields.io/badge/ChromaDB-vector%20store-FF6F00)
+![BM25](https://img.shields.io/badge/BM25-lexical-6E40C9)
+![Cross--Encoder](https://img.shields.io/badge/reranker-cross--encoder-2EA44F)
+![RAGAS](https://img.shields.io/badge/eval-RAGAS-E91E63)
+![pytest](https://img.shields.io/badge/tests-pytest-0A9EDC?logo=pytest&logoColor=white)
 
-- Keep every RAG layer explicit and independently testable.
-- Configure embedding models and retrieval strategies without changing application code.
-- Evaluate changes against a fixed golden dataset instead of relying only on manual examples.
-- Preserve intermediate artifacts for inspection and debugging.
-- Produce failure reports that show exactly what each retriever returned in its top results.
+**Hit@1 0.53 → 0.70** with hybrid retrieval + reranking · **Citation validity 1.00** · **Refusal accuracy 0.97**
 
-## Current architecture
+</div>
+
+---
+
+## Contents
+- [Highlights](#-highlights)
+- [Architecture](#-architecture)
+- [Results](#-results)
+- [Quick start](#-quick-start)
+- [Configuration](#%EF%B8%8F-configuration)
+- [Testing & evaluation](#-testing--evaluation)
+- [Project structure](#-project-structure)
+
+---
+
+## ✨ Highlights
+
+| | |
+|---|---|
+| 🧱 **Every layer explicit** | Ingestion → cleaning → chunking → embedding → storage → retrieval → generation, each independently testable |
+| 🔀 **Swap without code changes** | Embedding model (BGE / E5 / MiniLM) and retrieval strategy (dense / BM25 / hybrid) are YAML config |
+| 🎯 **Hybrid retrieval + reranking** | Weighted Reciprocal Rank Fusion of dense and BM25, then a cross-encoder reranker |
+| 📎 **Grounded answers** | Citations to source sections, refusal when the corpus has no answer, basic guardrails |
+| 📏 **Measured, not guessed** | Fixed 100-question golden set; deterministic checks + RAGAS LLM-as-judge |
+| 🔍 **Debuggable failures** | Per-strategy CSV shows exactly what each retriever returned for every failed question |
+
+---
+
+## 🧭 Architecture
 
 ```mermaid
-flowchart TD
-    A[Markdown Recipe Corpus]
-    B[Ingestion]
-    C[Cleaning]
-    D[Section-Based Chunking]
-    E[Embedding]
-    F[ChromaDB Vector Store]
-    G[Dense Retrieval]
-    H[BM25 Retrieval]
-    I[Weighted RRF Fusion]
-    J[Cross-Encoder Reranking]
-    K[Final Top-k Context]
-    L[Grounded Generation]
-    M[Answer with Citations or Refusal]
-    N[Deterministic Checks and RAGAS Judges]
-    O[Aggregate Evaluation Scores]
-
-    A --> B
-    B --> C
-    C --> D
-    D --> E
-    E --> F
-    F --> G
-    D --> H
-    G --> I
+flowchart LR
+    A[85 Markdown recipes] --> B[Ingestion] --> C[Cleaning] --> D[Section-based chunking<br/>272 chunks]
+    D --> E[Embedding<br/>BGE · E5 · MiniLM] --> F[(ChromaDB)]
+    F --> G[Dense retrieval]
+    D --> H[BM25 retrieval]
+    G --> I[Weighted RRF fusion]
     H --> I
-    I --> J
-    J --> K
-    K --> L
-    L --> M
-    M --> N
-    N --> O
+    I --> J[Cross-encoder rerank] --> K[Top-k context]
+    K --> L[Grounded generation] --> M([Answer with citations<br/>or refusal])
+    M --> N[Deterministic checks + RAGAS judges]
 ```
 
-Implemented layers:
+| Layer | What it does |
+|---|---|
+| Ingestion | Loads 85 Markdown recipes into a common document schema |
+| Cleaning | Normalizes whitespace and line endings, preserves Markdown structure |
+| Chunking | 272 parent-aware chunks split by recipe section |
+| Embedding | BGE, E5 and MiniLM profiles; one Chroma cosine index per profile |
+| Retrieval | `dense` · `bm25` (directly over `chunks.jsonl`) · `hybrid` (weighted RRF) + optional cross-encoder `ms-marco-MiniLM-L6-v2` |
+| Generation | Configurable OpenAI-compatible model, citations, refusal behavior, guardrails |
+| Evaluation | Deterministic rules + RAGAS faithfulness / relevancy / factual correctness |
 
-- **Ingestion:** loads 85 Markdown recipes into a common document schema.
-- **Cleaning:** normalizes whitespace and line endings while preserving Markdown structure.
-- **Chunking:** produces 272 parent-aware chunks split by recipe section.
-- **Embedding:** supports BGE, E5, and MiniLM profiles.
-- **Vector store:** persists one ChromaDB cosine index per embedding profile.
-- **Retrieval:** supports dense, BM25, weighted hybrid retrieval, and optional cross-encoder reranking.
-- **Generation:** calls a configurable OpenAI-compatible model with retrieved context, citations, refusal behavior, and basic guardrails.
-- **Evaluation:** combines deterministic checks with RAGAS LLM-as-judge metrics and prints aggregate scores.
-
-## Retrieval strategies
-
-Three strategies are available:
-
-- `dense`: embeds the query and searches the matching Chroma index.
-- `bm25`: performs lexical retrieval directly over `chunks.jsonl`; it does not use embeddings or ChromaDB.
-- `hybrid`: retrieves candidates from dense and BM25 branches and combines their ranks using weighted Reciprocal Rank Fusion.
-
-An optional cross-encoder then scores each `query + candidate chunk` pair jointly and reranks the first-stage candidates before returning the final top-k. The current reranker is `cross-encoder/ms-marco-MiniLM-L6-v2`.
-
-The hybrid score is:
-
+Hybrid score:
 ```text
-dense_weight / (rrf_k + dense_rank)
-+ bm25_weight / (rrf_k + bm25_rank)
+dense_weight / (rrf_k + dense_rank)  +  bm25_weight / (rrf_k + bm25_rank)
 ```
 
-## Dataset and evaluation
+---
 
-- Corpus: 85 English Markdown recipes in `data/raw/`.
-- Golden dataset: `data/evaluation/golden_recipes_100_en.jsonl`.
-- Questions: 100 total, including 88 answerable and 12 unanswerable records.
-- Retrieval metrics are calculated over the 88 answerable questions.
-- Main metrics: Hit@1, Hit@3, Hit@5, MRR@5, and Source Recall@5.
+## 📊 Results
 
-### Current baselines
+**Golden set:** 100 questions (88 answerable, 12 unanswerable) in `data/evaluation/golden_recipes_100_en.jsonl`. Retrieval metrics over the 88 answerable questions.
 
-| Strategy         | Embedding           |  Dense/BM25 weights |            Hit@1 |            Hit@3 |            Hit@5 |            MRR@5 |  Source Recall@5 |
-| ---------------- | ------------------- | ------------------: | ---------------: | ---------------: | ---------------: | ---------------: | ---------------: |
-| Dense            | BGE Small           |                  — |           0.5341 |           0.8068 |           0.8864 |           0.6716 |           0.8580 |
-| Dense            | E5 Small            |                  — |           0.5114 |           0.8409 |           0.8523 |           0.6600 |           0.8068 |
-| Hybrid           | BGE Small           |           1.0 / 1.0 |           0.5114 |           0.7955 |           0.8750 |           0.6538 |           0.8371 |
+### Retrieval
+
+| Strategy | Embedding | Dense / BM25 weights | Hit@1 | Hit@3 | Hit@5 | MRR@5 | Source Recall@5 |
+|---|---|---:|---:|---:|---:|---:|---:|
+| Dense | BGE Small | — | 0.5341 | 0.8068 | 0.8864 | 0.6716 | 0.8580 |
+| Dense | E5 Small | — | 0.5114 | 0.8409 | 0.8523 | 0.6600 | 0.8068 |
+| Hybrid | BGE Small | 1.0 / 1.0 | 0.5114 | 0.7955 | 0.8750 | 0.6538 | 0.8371 |
 | Hybrid | BGE Small | 1.5 / 0.5 | 0.5682 | 0.8182 | 0.8864 | 0.6939 | 0.8390 |
 | **Hybrid + reranker** | **BGE Small** | **1.5 / 0.5** | **0.7045** | **0.8977** | **0.9205** | **0.7973** | **0.9015** |
 
-The current configuration uses BGE Small, hybrid weights `1.5 / 0.5`, and a cross-encoder over 20 candidates. Reranking produces the strongest result across every measured retrieval metric, reducing top-one error questions from 38 to 26. The trade-off is latency: the 100-question CPU benchmark increases from roughly 22 seconds to 159 seconds.
+Reranking (cross-encoder over 20 candidates) wins on every metric and cuts top-one errors from 38 to 26 — at a latency cost: the 100-question CPU benchmark goes from ~22 s to ~159 s.
 
-### End-to-end RAG baseline
-
-The complete 100-question generation run evaluates all deterministic rules and uses RAGAS judges for the 88 answerable questions.
+### End-to-end RAG
 
 | Metric | Score |
-| --- | ---: |
+|---|---:|
 | Refusal accuracy | 0.9700 |
 | Citation validity | 1.0000 |
 | Citation gold precision | 0.8113 |
@@ -111,103 +101,49 @@ The complete 100-question generation run evaluates all deterministic rules and u
 | Answer relevancy | 0.8906 |
 | Factual correctness | 0.5810 |
 
-The full run completed without judge errors in roughly 43 minutes. RAGAS metrics may make several internal LLM calls per case; the provider dashboard reached about 707 requests during the session. Use `--limit 10` for routine checks and all 100 cases only for full benchmark runs.
+Full 100-question run: ~43 minutes, no judge errors (~707 provider requests — RAGAS makes several LLM calls per case). Use `--limit 10` for routine checks.
 
-## Project structure
+---
 
-```text
-configs/
-  embedding.yaml             # Active embedding profile and model settings
-  retrieval.yaml             # Strategy, candidate sizes, RRF, and weights
-  generation.yaml            # Prompt limits, output size, and refusal behavior
-  evaluation.yaml            # Sample limit and judge settings
-data/
-  raw/                       # Source Markdown corpus
-  evaluation/                # Versioned golden dataset
-  processed/                 # Generated artifacts; ignored by Git
-  vector_store/              # Generated Chroma indexes; ignored by Git
-scripts/
-  build_processed_data.py    # Raw Markdown → cleaned JSONL
-  build_chunks.py            # Cleaned documents → section chunks
-  build_embeddings.py        # Chunks → vectors for the active model
-  build_vector_store.py      # Embedded chunks → persistent Chroma index
-  inspect_retrieval.py       # Manually inspect one query
-  inspect_generation.py      # Run retrieval and generation for one question
-  inspect_evaluation.py      # Evaluate generated answers and print scores
-src/recipe_rag/
-  ingestion/
-  cleaning/
-  chunking/
-  embedding/
-  vector_store/
-  retrieval/
-    dense_retriever.py
-    bm25_retriever.py
-    hybrid_retriever.py
-    reranker.py
-  generation/                # Grounded answer generation and guardrails
-  evaluation/                # Deterministic checks and optional RAGAS judges
-tests/
-  evaluation/
-    test_evaluator.py             # Evaluation rules without real API calls
-  generation/
-    test_generator.py              # Fake-client generation and guardrail tests
-  retrieval/
-    test_retrieval_strategies.py  # Fast correctness tests for all strategies
-    test_retriever.py              # Golden-dataset quality benchmark
-```
+## 🚀 Quick start
 
-## Setup on Windows PowerShell
-
-Requirements: Python 3.12 and Git.
+Requirements: Python 3.12 and Git (commands shown for Windows PowerShell).
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip setuptools
-python -m pip install -e ".[dev]"
-```
+python -m pip install -e ".[dev]"              # add ",evaluation" for RAGAS judges
 
-Install the optional RAGAS evaluation dependencies when running answer-quality judges:
+copy .env.example .env                          # LLM_API_KEY, LLM_BASE_URL, LLM_MODEL
 
-```powershell
-python -m pip install -e ".[dev,evaluation]"
-```
-
-The editable install makes changes under `src/` immediately importable without reinstalling the package after every edit.
-
-## Build the retrieval artifacts
-
-Run the build steps in order after changing the corpus, cleaning rules, or chunking logic:
-
-```powershell
+# build retrieval artifacts (in order)
 python .\scripts\build_processed_data.py
 python .\scripts\build_chunks.py
 python .\scripts\build_embeddings.py
 python .\scripts\build_vector_store.py
+
+python .\scripts\inspect_generation.py          # ask a question, get a cited answer
 ```
 
-When only the embedding model changes, run the final two build commands. When only retrieval strategy, candidate sizes, RRF parameters, or weights change, no rebuild is required.
+Changed only the embedding model → rerun the last two build steps. Changed only retrieval settings → no rebuild needed.
+Artifacts are stored per embedding profile: `data/processed/embeddings/<profile>.jsonl`, `data/vector_store/<profile>/`.
 
-Generated artifacts are stored separately by embedding profile:
+---
 
-```text
-data/processed/embeddings/<profile>.jsonl
-data/vector_store/<profile>/
-```
+## ⚙️ Configuration
 
-## Configuration
-
-Select the embedding profile in `configs/embedding.yaml`:
+<details>
+<summary><b><code>configs/embedding.yaml</code> · <code>configs/retrieval.yaml</code> · <code>.env</code></b></summary>
 
 ```yaml
+# configs/embedding.yaml
 embedding:
   active_model: bge_small  # bge_small | e5_small | minilm
 ```
 
-Select and tune retrieval in `configs/retrieval.yaml`:
-
 ```yaml
+# configs/retrieval.yaml
 retrieval:
   strategy: hybrid         # dense | bm25 | hybrid
   final_top_k: 5
@@ -224,84 +160,54 @@ retrieval:
     batch_size: 32
 ```
 
-Set the API endpoint locally in `.env` using `.env.example` as the template:
-
 ```env
+# .env (never committed)
 LLM_API_KEY=your_api_key
 LLM_BASE_URL=https://your-provider.example/v1
 LLM_MODEL=your-model-name
 ```
 
-Generation limits and refusal behavior are configured in `configs/generation.yaml`. Secrets are never stored in YAML or committed to Git.
+Generation limits and refusal behavior: `configs/generation.yaml`. Evaluation sample size and judges: `configs/evaluation.yaml`.
+</details>
 
-## Run and test
+---
 
-Run all automated tests:
+## 🧪 Testing & evaluation
 
-```powershell
-python -m pytest
-```
+| Command | Purpose |
+|---|---|
+| `python -m pytest` | All automated tests |
+| `python -m pytest -s .\tests\retrieval\test_retrieval_strategies.py` | Dense / BM25 / hybrid rules, independent of active config |
+| `python -m pytest -s .\tests\retrieval\test_retriever.py` | Golden-set benchmark of the active strategy (writes a failure CSV) |
+| `python .\scripts\inspect_retrieval.py` | Inspect one query manually |
+| `python -m pytest -s .\tests\generation\test_generator.py` | Generation + guardrails with a fake client (no API calls) |
+| `python .\scripts\inspect_evaluation.py --limit 10 --deterministic-only` | 10 end-to-end cases, no RAGAS judge calls |
+| `python .\scripts\inspect_evaluation.py --limit 10` | Same, with RAGAS faithfulness / relevancy / factual correctness |
 
-Quickly verify the rules for dense, BM25, and hybrid retrieval independently of the active config:
+Failure report: `data/processed/evaluation/retrieval_errors_<strategy>_<profile>.csv` — one row per failed top-one question with expected source, first relevant rank and the five retrieved chunks.
+Start with `--limit 1` when validating a new provider (RAGAS makes multiple judge calls per case).
 
-```powershell
-python -m pytest -s .\tests\retrieval\test_retrieval_strategies.py
-```
+**Testing philosophy**
+- Layer tests verify correctness and data invariants; strategy tests verify retrieval rules even when another strategy is active.
+- Golden-set tests measure quality and catch regressions.
+- Generation and evaluation unit tests never call the real endpoint — only the `inspect_*` scripts do.
 
-Benchmark the strategy currently selected in `configs/retrieval.yaml`:
+---
 
-```powershell
-python -m pytest -s .\tests\retrieval\test_retriever.py
-```
-
-Inspect one question manually:
-
-```powershell
-python .\scripts\inspect_retrieval.py
-```
-
-Run retrieval and generate a grounded answer with citations:
-
-```powershell
-python .\scripts\inspect_generation.py
-```
-
-Test generation and guardrails without calling the real API:
-
-```powershell
-python -m pytest -s .\tests\generation\test_generator.py
-```
-
-Run 10 end-to-end cases without RAGAS judge calls (generation still calls the configured LLM):
-
-```powershell
-python .\scripts\inspect_evaluation.py --limit 10 --deterministic-only
-```
-
-Run the same cases with RAGAS faithfulness, answer relevancy, and factual correctness:
-
-```powershell
-python .\scripts\inspect_evaluation.py --limit 10
-```
-
-Start with `--limit 1` when validating a new provider because RAGAS makes multiple judge calls per answerable case. RAGAS prints aggregate scores directly to the terminal and does not create a CSV.
-
-The benchmark writes a per-strategy CSV report under:
+## 📁 Project structure
 
 ```text
-data/processed/evaluation/retrieval_errors_<strategy>_<profile>.csv
+configs/                     embedding · retrieval · generation · evaluation (YAML)
+data/
+  raw/                       source Markdown corpus (85 recipes)
+  evaluation/                versioned golden dataset
+  processed/, vector_store/  generated artifacts (git-ignored)
+scripts/                     build_* (data → chunks → embeddings → Chroma) · inspect_* (retrieval, generation, evaluation)
+src/recipe_rag/
+  ingestion/ cleaning/ chunking/ embedding/ vector_store/
+  retrieval/                 dense_retriever · bm25_retriever · hybrid_retriever · reranker
+  generation/                grounded answers + guardrails
+  evaluation/                deterministic checks + optional RAGAS judges
+tests/                       evaluation/ · generation/ · retrieval/
+docs/flow.md                 detailed implementation history
 ```
-
-Each failed top-one question occupies one row with seven columns: question ID, error type, question, expected answer, gold source/section, first relevant rank, and the five retrieved chunks. Internal vector and ranking details are omitted.
-
-## Testing philosophy
-
-- Layer tests verify correctness and data invariants.
-- Strategy tests verify retrieval rules even when another strategy is active in config.
-- Golden-dataset tests measure quality and detect regressions.
-- The compact retrieval CSV supports case-level debugging without dumping internal scores.
-- `inspect_retrieval.py` is reserved for quick experiments and deeper inspection of individual failures.
-- Generation unit tests use a fake API client; only the manual generation script calls the configured endpoint.
-- Evaluation unit tests never call the endpoint; RAGAS runs only from `inspect_evaluation.py`.
-
-Detailed implementation history is recorded in `docs/flow.md`.
